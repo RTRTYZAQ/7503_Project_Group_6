@@ -4,9 +4,13 @@ from train import train_model
 from bert import BertAttentionEnhancedSequenceClassification
 from transformers import BertPreTrainedModel, BertModel, BertConfig,BertForPreTraining
 import torch
+from torch.optim import Adam, AdamW, SGD, RMSprop
+from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, ExponentialLR
 
 # 加载SST-2数据集
 dataset = load_dataset("glue", "sst2")
+random_seed = 42
+torch.manual_seed(random_seed)
 
 # 查看数据集结构
 print(dataset)
@@ -34,7 +38,6 @@ config = BertConfig.from_pretrained('bert-base-uncased')
 
 # 训练原始BERT模型
 print("=== 训练原始BERT模型 ===")
-# pretrained_bert = BertForPreTraining.from_pretrained("bert-base-uncased", config=config)
 original_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
     "bert-base-uncased",
     num_labels=2,
@@ -46,7 +49,21 @@ for name, param in original_bert.named_parameters():
         param.data = torch.nn.init.xavier_uniform_(param.data)
         original_bert.state_dict()[name] = param.data
 
-train_model(original_bert, encoded_dataset["train"], encoded_dataset["validation"], "Original BERT", num_epochs=10)
+optimizer = AdamW(original_bert.parameters(), lr=1e-5)
+lr_scheduler = None
+
+train_model(
+    original_bert,
+    encoded_dataset["train"],
+    encoded_dataset["validation"],
+    "Original BERT",
+    num_epochs=3,
+    train_size=5000,
+    val_size=len(encoded_dataset["validation"]),
+    optimizer=optimizer,
+    lr_scheduler=lr_scheduler,
+    batch_size=16
+)
 
 
 # 训练自定义MoE Attention BERT模型
@@ -54,6 +71,21 @@ print("\n=== 训练自定义MoE Attention BERT模型 ===")
 moe_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
     "bert-base-uncased",
     num_labels=2,
-    enhanced_attention="MoE",  # 使用MoE Attention
+    enhanced_attention="MoE", # 使用MoE Attention
 )
-train_model(moe_bert, encoded_dataset["train"], encoded_dataset["validation"], "MoE BERT", num_epochs=10)
+
+optimizer = AdamW(moe_bert.parameters(), lr=1e-5)
+lr_scheduler = None
+
+train_model(
+    moe_bert,
+    encoded_dataset["train"],
+    encoded_dataset["validation"],
+    "MoE BERT",
+    num_epochs=3,
+    train_size=5000,
+    val_size=len(encoded_dataset["validation"]),
+    optimizer=optimizer,
+    lr_scheduler=lr_scheduler,
+    batch_size=16
+)

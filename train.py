@@ -4,26 +4,38 @@ from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
 
 
-def train_model(model, train_dataset, val_dataset, model_name="model", num_epochs=3):
+def train_model(model,
+                train_dataset,
+                val_dataset,
+                model_name="model",
+                num_epochs=3,
+                train_size=5000,
+                val_size=1000,
+                optimizer=None,
+                lr_scheduler=None,
+                batch_size=16):
     # 准备DataLoader
     train_dataloader = DataLoader(
-        train_dataset.select(range(5000)),  # 使用前5000个样本作为小数据集
-        batch_size=16,
+        # random sample train_size
+        train_dataset.select(range(train_size)),
+        batch_size=batch_size,
         shuffle=True
     )
     val_dataloader = DataLoader(
-        val_dataset.select(range(872)),  # 使用前1000个样本验证
-        batch_size=16
+        val_dataset.select(range(val_size)),
+        batch_size=batch_size
     )
 
     # 优化器和学习率调度
-    optimizer = AdamW(model.parameters(), lr=2e-5)
+    if optimizer is None:
+        optimizer = AdamW(model.parameters(), lr=1e-5)
     num_training_steps = num_epochs * len(train_dataloader)
-    lr_scheduler = get_linear_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=0,
-        num_training_steps=num_training_steps
-    )
+    if lr_scheduler is None:
+        lr_scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=0,
+            num_training_steps=num_training_steps
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
