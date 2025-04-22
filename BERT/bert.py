@@ -1,7 +1,7 @@
 from transformers import BertPreTrainedModel, BertModel, BertConfig
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.bert.modeling_bert import BertSelfAttention
-from bert_moe import MoEAttention, MoEAttentionExpert
+from BERT.bert_moe import MoEAttention, MoEAttentionExpert
 import torch
 import torch.nn as nn
 

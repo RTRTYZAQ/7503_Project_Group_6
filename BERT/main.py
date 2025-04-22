@@ -1,7 +1,7 @@
 from datasets import load_dataset
 from transformers import BertForSequenceClassification
-from train import train_model
-from bert import BertAttentionEnhancedSequenceClassification
+from BERT.train import train_model
+from BERT.bert import BertAttentionEnhancedSequenceClassification
 from transformers import BertPreTrainedModel, BertModel, BertConfig,BertForPreTraining
 import torch
 from torch.optim import Adam, AdamW, SGD, RMSprop
