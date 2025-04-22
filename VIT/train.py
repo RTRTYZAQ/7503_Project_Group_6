@@ -17,7 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 # from apex import amp
 # from apex.parallel import DistributedDataParallel as DDP
 
-from models.modeling import VisionTransformer, CONFIGS
+from model.VIT import VisionTransformer, CONFIGS
 from utils.scheduler import WarmupLinearSchedule, WarmupCosineSchedule
 from utils.data_utils import get_loader
 from utils.dist_util import get_world_size
@@ -61,7 +61,7 @@ def setup(args):
 
     num_classes = 10 if args.dataset == "cifar10" else 100
 
-    model = VisionTransformer(config, args.img_size, zero_head=True, num_classes=num_classes)
+    model = VisionTransformer(config, args.img_size, zero_head=True, num_classes=num_classes, extra_attention=args.extra_attention)
     model.load_from(np.load(args.pretrained_dir))
     model.to(args.device)
     num_params = count_parameters(model)
@@ -194,8 +194,6 @@ def train(args, model):
             batch = tuple(t.to(args.device) for t in batch)
             x, y = batch
             loss = model(x, y)
-
-            print(x.shape)
 
             if args.gradient_accumulation_steps > 1:
                 loss = loss / args.gradient_accumulation_steps

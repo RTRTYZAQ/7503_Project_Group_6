@@ -17,9 +17,11 @@ from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, Conv2d, LayerNo
 from torch.nn.modules.utils import _pair
 from scipy import ndimage
 
-import models.configs as configs
+import ml_collections
 
-from .modeling_resnet import ResNetV2
+# from .modeling_resnet import ResNetV2
+
+from extra_attention.random_attention import Random_Attention
 
 
 logger = logging.getLogger(__name__)
@@ -139,10 +141,10 @@ class Embeddings(nn.Module):
             n_patches = (img_size[0] // patch_size[0]) * (img_size[1] // patch_size[1])
             self.hybrid = False
 
-        if self.hybrid:
-            self.hybrid_model = ResNetV2(block_units=config.resnet.num_layers,
-                                         width_factor=config.resnet.width_factor)
-            in_channels = self.hybrid_model.width * 16
+        # if self.hybrid:
+        #     self.hybrid_model = ResNetV2(block_units=config.resnet.num_layers,
+        #                                  width_factor=config.resnet.width_factor)
+        #     in_channels = self.hybrid_model.width * 16
         self.patch_embeddings = Conv2d(in_channels=in_channels,
                                        out_channels=config.hidden_size,
                                        kernel_size=patch_size,
@@ -169,13 +171,18 @@ class Embeddings(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, config, vis):
+    def __init__(self, config, vis, extra_attention=None):
         super(Block, self).__init__()
         self.hidden_size = config.hidden_size
         self.attention_norm = LayerNorm(config.hidden_size, eps=1e-6)
         self.ffn_norm = LayerNorm(config.hidden_size, eps=1e-6)
         self.ffn = Mlp(config)
-        self.attn = Attention(config, vis)
+
+        if extra_attention == None:
+            self.attn = Attention(config, vis)
+        elif extra_attention == 'random':
+            self.attn = Random_Attention(config, vis)
+
 
     def forward(self, x):
         h = x
@@ -211,6 +218,15 @@ class Block(nn.Module):
             self.attn.value.bias.copy_(value_bias)
             self.attn.out.bias.copy_(out_bias)
 
+            # self.attn.query.weight.data = torch.nn.init.xavier_uniform_(self.attn.query.weight.data)
+            # self.attn.key.weight.data = torch.nn.init.xavier_uniform_(self.attn.key.weight.data)
+            # self.attn.value.weight.data = torch.nn.init.xavier_uniform_(self.attn.value.weight.data)
+            # self.attn.out.weight.data = torch.nn.init.xavier_uniform_(self.attn.out.weight.data)
+            # self.attn.query.bias.data = torch.nn.init.zeros_(self.attn.query.bias.data)
+            # self.attn.key.bias.data = torch.nn.init.zeros_(self.attn.key.bias.data)
+            # self.attn.value.bias.data = torch.nn.init.zeros_(self.attn.value.bias.data)
+            # self.attn.out.bias.data = torch.nn.init.zeros_(self.attn.out.bias.data)
+
             mlp_weight_0 = np2th(weights[pjoin(ROOT, FC_0, "kernel")]).t()
             mlp_weight_1 = np2th(weights[pjoin(ROOT, FC_1, "kernel")]).t()
             mlp_bias_0 = np2th(weights[pjoin(ROOT, FC_0, "bias")]).t()
@@ -228,13 +244,13 @@ class Block(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, config, vis):
+    def __init__(self, config, vis, extra_attention=None):
         super(Encoder, self).__init__()
         self.vis = vis
         self.layer = nn.ModuleList()
         self.encoder_norm = LayerNorm(config.hidden_size, eps=1e-6)
         for _ in range(config.transformer["num_layers"]):
-            layer = Block(config, vis)
+            layer = Block(config, vis, extra_attention)
             self.layer.append(copy.deepcopy(layer))
 
     def forward(self, hidden_states):
@@ -248,10 +264,10 @@ class Encoder(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, config, img_size, vis):
+    def __init__(self, config, img_size, vis, extra_attention=None):
         super(Transformer, self).__init__()
         self.embeddings = Embeddings(config, img_size=img_size)
-        self.encoder = Encoder(config, vis)
+        self.encoder = Encoder(config, vis, extra_attention)
 
     def forward(self, input_ids):
         embedding_output = self.embeddings(input_ids)
@@ -260,13 +276,13 @@ class Transformer(nn.Module):
 
 
 class VisionTransformer(nn.Module):
-    def __init__(self, config, img_size=224, num_classes=21843, zero_head=False, vis=False):
+    def __init__(self, config, img_size=224, num_classes=21843, zero_head=False, vis=False, extra_attention=None):
         super(VisionTransformer, self).__init__()
         self.num_classes = num_classes
         self.zero_head = zero_head
         self.classifier = config.classifier
 
-        self.transformer = Transformer(config, img_size, vis)
+        self.transformer = Transformer(config, img_size, vis, extra_attention)
         self.head = Linear(config.hidden_size, num_classes)
 
     def forward(self, x, labels=None):
@@ -336,12 +352,105 @@ class VisionTransformer(nn.Module):
                         unit.load_from(weights, n_block=bname, n_unit=uname)
 
 
+
+
+
+def get_testing():
+    """Returns a minimal configuration for testing."""
+    config = ml_collections.ConfigDict()
+    config.patches = ml_collections.ConfigDict({'size': (16, 16)})
+    config.hidden_size = 1
+    config.transformer = ml_collections.ConfigDict()
+    config.transformer.mlp_dim = 1
+    config.transformer.num_heads = 1
+    config.transformer.num_layers = 1
+    config.transformer.attention_dropout_rate = 0.0
+    config.transformer.dropout_rate = 0.1
+    config.classifier = 'token'
+    config.representation_size = None
+    return config
+
+
+def get_b16_config():
+    """Returns the ViT-B/16 configuration."""
+    config = ml_collections.ConfigDict()
+    config.patches = ml_collections.ConfigDict({'size': (16, 16)})
+    config.hidden_size = 768
+    config.transformer = ml_collections.ConfigDict()
+    config.transformer.mlp_dim = 3072
+    config.transformer.num_heads = 12
+    config.transformer.num_layers = 12
+    config.transformer.attention_dropout_rate = 0.0
+    config.transformer.dropout_rate = 0.1
+    config.classifier = 'token'
+    config.representation_size = None
+    return config
+
+
+def get_r50_b16_config():
+    """Returns the Resnet50 + ViT-B/16 configuration."""
+    config = get_b16_config()
+    del config.patches.size
+    config.patches.grid = (14, 14)
+    config.resnet = ml_collections.ConfigDict()
+    config.resnet.num_layers = (3, 4, 9)
+    config.resnet.width_factor = 1
+    return config
+
+
+def get_b32_config():
+    """Returns the ViT-B/32 configuration."""
+    config = get_b16_config()
+    config.patches.size = (32, 32)
+    return config
+
+
+def get_l16_config():
+    """Returns the ViT-L/16 configuration."""
+    config = ml_collections.ConfigDict()
+    config.patches = ml_collections.ConfigDict({'size': (16, 16)})
+    config.hidden_size = 1024
+    config.transformer = ml_collections.ConfigDict()
+    config.transformer.mlp_dim = 4096
+    config.transformer.num_heads = 16
+    config.transformer.num_layers = 24
+    config.transformer.attention_dropout_rate = 0.0
+    config.transformer.dropout_rate = 0.1
+    config.classifier = 'token'
+    config.representation_size = None
+    return config
+
+
+def get_l32_config():
+    """Returns the ViT-L/32 configuration."""
+    config = get_l16_config()
+    config.patches.size = (32, 32)
+    return config
+
+
+def get_h14_config():
+    """Returns the ViT-L/16 configuration."""
+    config = ml_collections.ConfigDict()
+    config.patches = ml_collections.ConfigDict({'size': (14, 14)})
+    config.hidden_size = 1280
+    config.transformer = ml_collections.ConfigDict()
+    config.transformer.mlp_dim = 5120
+    config.transformer.num_heads = 16
+    config.transformer.num_layers = 32
+    config.transformer.attention_dropout_rate = 0.0
+    config.transformer.dropout_rate = 0.1
+    config.classifier = 'token'
+    config.representation_size = None
+    return config
+
+
+
 CONFIGS = {
-    'ViT-B_16': configs.get_b16_config(),
-    'ViT-B_32': configs.get_b32_config(),
-    'ViT-L_16': configs.get_l16_config(),
-    'ViT-L_32': configs.get_l32_config(),
-    'ViT-H_14': configs.get_h14_config(),
-    'R50-ViT-B_16': configs.get_r50_b16_config(),
-    'testing': configs.get_testing(),
+    'ViT-B_16': get_b16_config(),
+    'ViT-B_32': get_b32_config(),
+    'ViT-L_16': get_l16_config(),
+    'ViT-L_32': get_l32_config(),
+    'ViT-H_14': get_h14_config(),
+    'R50-ViT-B_16': get_r50_b16_config(),
+    'testing': get_testing(),
 }
