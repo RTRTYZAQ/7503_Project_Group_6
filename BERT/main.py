@@ -122,7 +122,7 @@ for dataset_name, num_labels in dataset_config.items():
     optimizer = AdamW(original_bert.parameters(), lr=1e-5)
     model, metrics = train_model(
         original_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)*1//4))),
+        train_dataset.select(range(min(5000,len(train_dataset)))),
         val_dataset,
         f"Original BERT - {dataset_name}",
         num_epochs=1,
@@ -152,7 +152,7 @@ for dataset_name, num_labels in dataset_config.items():
     optimizer = AdamW(moe_bert.parameters(), lr=1e-5)
     model, metrics = train_model(
         moe_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)*1//4))),
+        train_dataset.select(range(min(5000,len(train_dataset)))),
         val_dataset,
         f"MoE BERT - {dataset_name}",
         num_epochs=1,
