@@ -3,6 +3,7 @@ from torch.utils.data import DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
 from sklearn.metrics import matthews_corrcoef
+from evaluate import load
 
 def train_model(model,
                 train_dataset,
@@ -12,13 +13,9 @@ def train_model(model,
                 optimizer=None,
                 lr_scheduler=None,
                 batch_size=16,
-                eval_metric="accuracy"):
+                dataset_name="sst-2"):
     # 准备DataLoader
-    metric_results = {
-        "Train Loss": 0,
-        "Val Loss": 0,
-        f"Val {eval_metric}": None
-    }
+
     train_dataloader = DataLoader(
         # random sample train_size
         train_dataset,
@@ -37,7 +34,7 @@ def train_model(model,
     if lr_scheduler is None:
         lr_scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=0,
+            num_warmup_steps=len(train_dataloader)//2,
             num_training_steps=num_training_steps
         )
 
@@ -85,24 +82,8 @@ def train_model(model,
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(batch["labels"].cpu().numpy())
 
-        val_accuracy = correct / total
-        avg_val_loss = val_loss / len(val_dataloader)
+        glue_metric = load("glue", dataset_name)
+        results = glue_metric.compute(predictions=all_predictions, references=all_labels)
+        print(results)
 
-        # 根据评测指标计算结果
-        if eval_metric == "mcc":
-            val_metric = matthews_corrcoef(all_labels, all_predictions)
-            metric_name = "MCC"
-        else:
-            correct = sum(p == l for p, l in zip(all_predictions, all_labels))
-            val_metric = correct / len(all_labels)
-            metric_name = "Accuracy"
-
-        print(f"{model_name} - Epoch {epoch + 1}:")
-        print(f"  Train Loss: {avg_train_loss:.4f}")
-        print(f"  Val Loss: {avg_val_loss:.4f}")
-        print(f"  Val {metric_name}: {val_metric:.4f}\n")
-        metric_results["Train Loss"] = avg_train_loss
-        metric_results["Val Loss"] = avg_val_loss
-        metric_results[f"Val {metric_name}"] = val_metric
-
-    return model, metric_results
+    return model, results
