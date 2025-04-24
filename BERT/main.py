@@ -1,4 +1,4 @@
-from datasets import load_dataset
+from datasets import load_dataset, load_from_disk
 from transformers import BertForSequenceClassification
 from train import train_model
 from bert import BertAttentionEnhancedSequenceClassification
@@ -6,33 +6,40 @@ from transformers import BertPreTrainedModel, BertModel, BertConfig,BertForPreTr
 import torch
 from torch.optim import Adam, AdamW, SGD, RMSprop
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, ExponentialLR
+from transformers import BertTokenizer
+import os
 
-# 加载SST-2数据集
-dataset = load_dataset("glue", "sst2")
+# 设置随机种子
 random_seed = 42
 torch.manual_seed(random_seed)
 
-# 查看数据集结构
-print(dataset)
-print("\n样例:")
-print(dataset["train"][0])
-from transformers import BertTokenizer
+# 定义数据集列表（名称，子集，文本字段）
+dataset_list = [
+    ("glue", "sst2", "sentence"),
+    ("glue", "cola", "sentence"),
+    ("glue", "mrpc", ["sentence1", "sentence2"]),
+    ("glue", "stsb", ["sentence1", "sentence2"]),
+    ("glue", "qqp", ["question1", "question2"]),
+    ("glue", "mnli", ["premise", "hypothesis"]),
+    ("glue", "qnli", ["question", "sentence"]),
+    ("glue", "rte", ["sentence1", "sentence2"]),
+    ("glue", "wnli", ["sentence1", "sentence2"]),
+]
 
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+def load_all_datasets(base_dir="processed_datasets"):
+    datasets = {}
+    for dataset_dir in os.listdir(base_dir):
+        dataset_path = os.path.join(base_dir, dataset_dir)
+        if os.path.isdir(dataset_path):
+            datasets[dataset_dir] = {
+                "train": load_from_disk(os.path.join(dataset_path, "train")),
+                "validation": load_from_disk(os.path.join(dataset_path, "validation")) if os.path.exists(os.path.join(dataset_path, "validation")) else None,
+                "test": load_from_disk(os.path.join(dataset_path, "test")) if os.path.exists(os.path.join(dataset_path, "test")) else None
+            }
+    return datasets
 
-def preprocess_function(examples):
-    return tokenizer(
-        examples["sentence"],
-        truncation=True,
-        padding="max_length",
-        max_length=128
-    )
-
-# 预处理数据集
-encoded_dataset = dataset.map(preprocess_function, batched=True)
-encoded_dataset = encoded_dataset.rename_column("label", "labels")
-encoded_dataset.set_format("torch", columns=["input_ids", "attention_mask", "labels"])
-
+# 加载所有数据集
+all_datasets = load_all_datasets()
 
 config = BertConfig.from_pretrained('bert-base-uncased')
 
@@ -54,12 +61,10 @@ lr_scheduler = None
 
 train_model(
     original_bert,
-    encoded_dataset["train"],
-    encoded_dataset["validation"],
+    all_datasets["glue_sst2"]["train"],
+    all_datasets["glue_sst2"]["validation"],
     "Original BERT",
     num_epochs=3,
-    train_size=5000,
-    val_size=len(encoded_dataset["validation"]),
     optimizer=optimizer,
     lr_scheduler=lr_scheduler,
     batch_size=16
@@ -79,12 +84,10 @@ lr_scheduler = None
 
 train_model(
     moe_bert,
-    encoded_dataset["train"],
-    encoded_dataset["validation"],
+    all_datasets["glue_sst2"]["train"],
+    all_datasets["glue_sst2"]["validation"],
     "MoE BERT",
     num_epochs=3,
-    train_size=5000,
-    val_size=len(encoded_dataset["validation"]),
     optimizer=optimizer,
     lr_scheduler=lr_scheduler,
     batch_size=16

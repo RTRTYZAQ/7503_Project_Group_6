@@ -9,20 +9,18 @@ def train_model(model,
                 val_dataset,
                 model_name="model",
                 num_epochs=3,
-                train_size=5000,
-                val_size=1000,
                 optimizer=None,
                 lr_scheduler=None,
                 batch_size=16):
     # 准备DataLoader
     train_dataloader = DataLoader(
         # random sample train_size
-        train_dataset.select(range(train_size)),
+        train_dataset,
         batch_size=batch_size,
         shuffle=True
     )
     val_dataloader = DataLoader(
-        val_dataset.select(range(val_size)),
+        val_dataset,
         batch_size=batch_size
     )
 
