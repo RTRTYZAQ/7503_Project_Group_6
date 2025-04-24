@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from transformers import AdamW, get_linear_schedule_with_warmup
 from tqdm import tqdm
-
+from sklearn.metrics import matthews_corrcoef
 
 def train_model(model,
                 train_dataset,
@@ -11,8 +11,14 @@ def train_model(model,
                 num_epochs=3,
                 optimizer=None,
                 lr_scheduler=None,
-                batch_size=16):
+                batch_size=16,
+                eval_metric="accuracy"):
     # 准备DataLoader
+    metric_results = {
+        "Train Loss": 0,
+        "Val Loss": 0,
+        f"Val {eval_metric}": None
+    }
     train_dataloader = DataLoader(
         # random sample train_size
         train_dataset,
@@ -64,6 +70,8 @@ def train_model(model,
         val_loss = 0
         correct = 0
         total = 0
+        all_predictions = []
+        all_labels = []
 
         for batch in val_dataloader:
             batch = {k: v.to(device) for k, v in batch.items()}
@@ -74,13 +82,27 @@ def train_model(model,
             predictions = torch.argmax(outputs.logits, dim=-1)
             correct += (predictions == batch["labels"]).sum().item()
             total += len(batch["labels"])
+            all_predictions.extend(predictions.cpu().numpy())
+            all_labels.extend(batch["labels"].cpu().numpy())
 
         val_accuracy = correct / total
         avg_val_loss = val_loss / len(val_dataloader)
 
+        # 根据评测指标计算结果
+        if eval_metric == "mcc":
+            val_metric = matthews_corrcoef(all_labels, all_predictions)
+            metric_name = "MCC"
+        else:
+            correct = sum(p == l for p, l in zip(all_predictions, all_labels))
+            val_metric = correct / len(all_labels)
+            metric_name = "Accuracy"
+
         print(f"{model_name} - Epoch {epoch + 1}:")
         print(f"  Train Loss: {avg_train_loss:.4f}")
         print(f"  Val Loss: {avg_val_loss:.4f}")
-        print(f"  Val Acc: {val_accuracy:.4f}\n")
+        print(f"  Val {metric_name}: {val_metric:.4f}\n")
+        metric_results["Train Loss"] = avg_train_loss
+        metric_results["Val Loss"] = avg_val_loss
+        metric_results[f"Val {metric_name}"] = val_metric
 
-    return model
+    return model, metric_results
