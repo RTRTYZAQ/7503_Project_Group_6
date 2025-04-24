@@ -3,3 +3,5 @@
 /BERT/processed_datasets/
 /.idea/
 /data/Tiny-ImageNet/
+/VIT/data/Tiny-ImageNet/tiny-imagenet-200/
+/VIT/data/Tiny-ImageNet/tiny-imagenet-200.zip
