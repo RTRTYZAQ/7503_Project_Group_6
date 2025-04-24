@@ -1,7 +1,6 @@
-"__pycache__/" 
-"*.pyc" 
-/BERT/processed_datasets/
-/.idea/
-/data/Tiny-ImageNet/
-/VIT/data/Tiny-ImageNet/tiny-imagenet-200/
-/VIT/data/Tiny-ImageNet/tiny-imagenet-200.zip
+BERT/__pycache__/ 
+BERT/processed_datasets/
+.idea/
+VIT/data/
+VIT/__pycache__/
+VIT/pretrain_weights/
