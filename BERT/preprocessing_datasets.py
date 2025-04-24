@@ -49,7 +49,7 @@ def preprocess_function(examples, text_fields):
             examples[text_fields],
             truncation=True,
             padding="max_length",
-            max_length=256
+            max_length=128
         )
     else:
         return tokenizer(
@@ -57,7 +57,7 @@ def preprocess_function(examples, text_fields):
             examples[text_fields[1]],
             truncation=True,
             padding="max_length",
-            max_length=256
+            max_length=128
         )
 
 def save_dataset_to_disk(dataset, save_path):

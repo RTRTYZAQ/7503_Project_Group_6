@@ -24,12 +24,14 @@
 - train.py is the file that contains the training loop and evaluation functions.
 - main.py is the file that contains the main function to run the training and evaluation.
 - bert_moe.py defines the Mixture of Experts (MoE) attention structure, which is imported in to bert.py for attention structure choosing.
+- preprocessing_datasets.py is the file that contains the preprocessing functions for the datasets.
 
 ### Requirements
 - torch, transformers, datasets
-- costs 7GB of GPU memory for training
+- costs 7GB of GPU memory for training(setting max_tokens=128 in preprocessing_datasets.py)
 
 ### Running
 To run the training and evaluation, use the following command:
 
+```python preprocessing_datasets.py```
 ```python main.py``` 
