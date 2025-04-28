@@ -8,6 +8,7 @@ from evaluate import load
 def train_model(model,
                 train_dataset,
                 val_dataset,
+                test_dataset,
                 model_name="model",
                 num_epochs=3,
                 optimizer=None,
@@ -24,6 +25,10 @@ def train_model(model,
     )
     val_dataloader = DataLoader(
         val_dataset,
+        batch_size=batch_size
+    )
+    test_dataloader = DataLoader(
+        test_dataset,
         batch_size=batch_size
     )
 
@@ -86,4 +91,24 @@ def train_model(model,
         results = glue_metric.compute(predictions=all_predictions, references=all_labels)
         print(results)
 
-    return model, results
+    test_loss = 0
+    test_correct = 0
+    test_total = 0
+    test_all_predictions = []
+    test_all_labels = []
+
+    for batch in test_dataloader:
+        batch = {k: v.to(device) for k, v in batch.items()}
+        with torch.no_grad():
+            outputs = model(**batch)
+        test_loss += outputs.loss.item()
+        predictions = torch.argmax(outputs.logits, dim=-1)
+        test_correct += (predictions == batch["labels"]).sum().item()
+        test_total += len(batch["labels"])
+        test_all_predictions.extend(predictions.cpu().numpy())
+        test_all_labels.extend(batch["labels"].cpu().numpy())
+    glue_metric = load("glue", dataset_name)
+    test_results = glue_metric.compute(predictions=test_all_predictions, references=test_all_labels)
+    print(test_results)
+
+    return model, test_results

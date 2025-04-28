@@ -96,7 +96,7 @@ train_model(
 # 初始化结果存储
 results = []
 num_epochs = 5
-batch_size = 32
+batch_size = 16
 
 # 遍历数据集配置
 for dataset_name, num_labels in dataset_config.items():
@@ -106,6 +106,7 @@ for dataset_name, num_labels in dataset_config.items():
     dataset = all_datasets[dataset_name]
     train_dataset = dataset["train"]
     val_dataset = dataset["validation"]
+    test_dataset = dataset["test"]
 
     # 配置BERT模型
     config = BertConfig.from_pretrained('bert-base-uncased', num_labels=num_labels)
@@ -127,6 +128,7 @@ for dataset_name, num_labels in dataset_config.items():
         random_bert,
         train_dataset.select(range(min(5000, len(train_dataset)))),
         val_dataset,
+        test_dataset,
         f"Random BERT - {dataset_name}",
         num_epochs=num_epochs,
         optimizer=optimizer,
@@ -159,6 +161,7 @@ for dataset_name, num_labels in dataset_config.items():
         original_bert,
         train_dataset.select(range(min(5000,len(train_dataset)))),
         val_dataset,
+        test_dataset,
         f"Original BERT - {dataset_name}",
         num_epochs=num_epochs,
         optimizer=optimizer,
@@ -191,6 +194,7 @@ for dataset_name, num_labels in dataset_config.items():
         moe_bert,
         train_dataset.select(range(min(5000,len(train_dataset)))),
         val_dataset,
+        test_dataset,
         f"MoE BERT - {dataset_name}",
         num_epochs=num_epochs,
         optimizer=optimizer,

@@ -35,3 +35,9 @@ To run the training and evaluation, use the following command:
 
 ```python preprocessing_datasets.py```
 ```python main.py``` 
+
+### Add new attention
+
+- 可以直接在BERT文件夹下添加bert-yourmethod.py，里面的定义方式可以参照bert_moe.py或者bert_random.py
+- 保证输入输出和原始bert的attention部分一致即可
+- 记得在bert.py中import新的attention方法，并在判断部分加入语句用于选择
