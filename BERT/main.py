@@ -95,6 +95,8 @@ train_model(
 
 # 初始化结果存储
 results = []
+num_epochs = 5
+batch_size = 32
 
 # 遍历数据集配置
 for dataset_name, num_labels in dataset_config.items():
@@ -126,9 +128,9 @@ for dataset_name, num_labels in dataset_config.items():
         train_dataset.select(range(min(5000, len(train_dataset)))),
         val_dataset,
         f"Random BERT - {dataset_name}",
-        num_epochs=3,
+        num_epochs=num_epochs,
         optimizer=optimizer,
-        batch_size=16,
+        batch_size=batch_size,
         dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
     )
     results.append({
@@ -158,9 +160,9 @@ for dataset_name, num_labels in dataset_config.items():
         train_dataset.select(range(min(5000,len(train_dataset)))),
         val_dataset,
         f"Original BERT - {dataset_name}",
-        num_epochs=3,
+        num_epochs=num_epochs,
         optimizer=optimizer,
-        batch_size=16,
+        batch_size=batch_size,
         dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name,
     )
     results.append({
@@ -178,10 +180,10 @@ for dataset_name, num_labels in dataset_config.items():
         num_labels=num_labels,
         enhanced_attention="MoE",
     )
-    # for name, param in moe_bert.named_parameters():
-    #     if 'attention' in name and param.data.dim() >= 2:
-    #         param.data = torch.nn.init.xavier_uniform_(param.data)
-    #         moe_bert.state_dict()[name] = param.data
+    for name, param in moe_bert.named_parameters():
+        if 'attention' in name and param.data.dim() >= 2:
+            param.data = torch.nn.init.xavier_uniform_(param.data)
+            moe_bert.state_dict()[name] = param.data
 
     optimizer = AdamW(moe_bert.parameters(), lr=2e-5, weight_decay=0.01)
     # optimizer = Adam(moe_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
@@ -190,9 +192,9 @@ for dataset_name, num_labels in dataset_config.items():
         train_dataset.select(range(min(5000,len(train_dataset)))),
         val_dataset,
         f"MoE BERT - {dataset_name}",
-        num_epochs=3,
+        num_epochs=num_epochs,
         optimizer=optimizer,
-        batch_size=16,
+        batch_size=batch_size,
         dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
     )
     results.append({
@@ -211,14 +213,32 @@ print("\n=== 训练结果 ===")
 print(results_df)
 
 # 绘制图表
+# 绘制图表
 for dataset_name in dataset_config.keys():
     dataset_results = results_df[results_df["Dataset"] == dataset_name]
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(12, 6))
+
+    # 绘制 accuracy
+    plt.subplot(1, 2, 1)
     for model_name in dataset_results["Model"].unique():
         model_results = dataset_results[dataset_results["Model"] == model_name]
-        plt.plot(range(1, len(model_results) + 1), model_results["Val Accuracy"], label=model_name)
-    plt.title(f"Validation Accuracy for {dataset_name}")
-    plt.xlabel("Epoch")
-    plt.ylabel("Validation Accuracy")
-    plt.legend()
+        plt.bar(model_name, model_results["accuracy"].values[0], label=model_name)
+    plt.title(f"Accuracy for {dataset_name}")
+    plt.ylabel("Accuracy")
+    plt.xticks(rotation=45)
+    plt.ylim(0, 1)
+
+    # 绘制 f1 分数
+    plt.subplot(1, 2, 2)
+    for model_name in dataset_results["Model"].unique():
+        model_results = dataset_results[dataset_results["Model"] == model_name]
+        f1_score = model_results["f1"].values[0]
+        if not pd.isna(f1_score):  # 检查是否有 f1 分数
+            plt.bar(model_name, f1_score, label=model_name)
+    plt.title(f"F1 Score for {dataset_name}")
+    plt.ylabel("F1 Score")
+    plt.xticks(rotation=45)
+    plt.ylim(0, 1)
+
+    plt.tight_layout()
     plt.show()
