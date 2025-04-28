@@ -4,6 +4,7 @@ from transformers.models.bert.modeling_bert import BertSelfAttention
 from bert_moe import MoEAttention, MoEAttentionExpert
 import torch
 import torch.nn as nn
+from bert_random import RandomAttention
 
 class BertAttentionEnhancedSequenceClassification(BertPreTrainedModel):
     def __init__(self, config, enhanced_attention="None"):
@@ -20,6 +21,9 @@ class BertAttentionEnhancedSequenceClassification(BertPreTrainedModel):
             if self.enhanced_attention == "MoE":
                 # 替换为MoE Attention, 并且随机初始化参数
                 layer.attention.self = MoEAttention(config, num_experts=4, top_k=2)
+            elif self.enhanced_attention == "Random":
+                # 替换为随机注意力
+                layer.attention.self = RandomAttention(config, vis=False)
             else:
                 # 替换为普通BERT Attention
                 layer.attention.self = BertSelfAttention(config)

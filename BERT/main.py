@@ -108,6 +108,38 @@ for dataset_name, num_labels in dataset_config.items():
     # 配置BERT模型
     config = BertConfig.from_pretrained('bert-base-uncased', num_labels=num_labels)
 
+    # 训练随机注意力BERT模型
+    print(f"\n=== 训练随机注意力BERT模型: {dataset_name} ===")
+    random_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
+        "bert-base-uncased",
+        num_labels=num_labels,
+        enhanced_attention="Random",
+    )
+    for name, param in random_bert.named_parameters():
+        if 'attention' in name and param.data.dim() >= 2:
+            param.data = torch.nn.init.xavier_uniform_(param.data)
+            random_bert.state_dict()[name] = param.data
+    optimizer = AdamW(random_bert.parameters(), lr=2e-5, weight_decay=0.01)
+    # optimizer = Adam(random_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
+    model, metrics = train_model(
+        random_bert,
+        train_dataset.select(range(min(5000, len(train_dataset)))),
+        val_dataset,
+        f"Random BERT - {dataset_name}",
+        num_epochs=3,
+        optimizer=optimizer,
+        batch_size=16,
+        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
+    )
+    results.append({
+        "Model": "Random BERT",
+        "Dataset": dataset_name,
+        **metrics
+    })
+    del random_bert
+    torch.cuda.empty_cache()
+
+
     # 训练原始BERT模型
     print(f"\n=== 训练原始BERT模型: {dataset_name} ===")
     original_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
@@ -146,10 +178,10 @@ for dataset_name, num_labels in dataset_config.items():
         num_labels=num_labels,
         enhanced_attention="MoE",
     )
-    for name, param in moe_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            moe_bert.state_dict()[name] = param.data
+    # for name, param in moe_bert.named_parameters():
+    #     if 'attention' in name and param.data.dim() >= 2:
+    #         param.data = torch.nn.init.xavier_uniform_(param.data)
+    #         moe_bert.state_dict()[name] = param.data
 
     optimizer = AdamW(moe_bert.parameters(), lr=2e-5, weight_decay=0.01)
     # optimizer = Adam(moe_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
