@@ -91,24 +91,27 @@ def train_model(model,
         results = glue_metric.compute(predictions=all_predictions, references=all_labels)
         print(results)
 
-    test_loss = 0
-    test_correct = 0
-    test_total = 0
-    test_all_predictions = []
-    test_all_labels = []
+    if dataset_name != "sst-2":
+        test_loss = 0
+        test_correct = 0
+        test_total = 0
+        test_all_predictions = []
+        test_all_labels = []
 
-    for batch in test_dataloader:
-        batch = {k: v.to(device) for k, v in batch.items()}
-        with torch.no_grad():
-            outputs = model(**batch)
-        test_loss += outputs.loss.item()
-        predictions = torch.argmax(outputs.logits, dim=-1)
-        test_correct += (predictions == batch["labels"]).sum().item()
-        test_total += len(batch["labels"])
-        test_all_predictions.extend(predictions.cpu().numpy())
-        test_all_labels.extend(batch["labels"].cpu().numpy())
-    glue_metric = load("glue", dataset_name)
-    test_results = glue_metric.compute(predictions=test_all_predictions, references=test_all_labels)
-    print(test_results)
+        for batch in test_dataloader:
+            batch = {k: v.to(device) for k, v in batch.items()}
+            with torch.no_grad():
+                outputs = model(**batch)
+            test_loss += outputs.loss.item()
+            predictions = torch.argmax(outputs.logits, dim=-1)
+            test_correct += (predictions == batch["labels"]).sum().item()
+            test_total += len(batch["labels"])
+            test_all_predictions.extend(predictions.cpu().numpy())
+            test_all_labels.extend(batch["labels"].cpu().numpy())
+        glue_metric = load("glue", dataset_name)
+        test_results = glue_metric.compute(predictions=test_all_predictions, references=test_all_labels)
+        print(test_results)
 
-    return model, test_results
+        return model, test_results
+    else:
+        return model, results
