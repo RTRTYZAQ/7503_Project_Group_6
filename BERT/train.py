@@ -91,7 +91,7 @@ def train_model(model,
         results = glue_metric.compute(predictions=all_predictions, references=all_labels)
         print(results)
 
-    if dataset_name != "glue_sst-2":
+    if dataset_name != "sst2":
         test_loss = 0
         test_correct = 0
         test_total = 0
