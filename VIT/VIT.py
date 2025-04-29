@@ -23,6 +23,7 @@ from extra_attention.random_attention import Random_Attention
 from extra_attention.bigbird_attention import BigBird_Attention
 from extra_attention.gau_attention import GAU_Attention
 from extra_attention.global_slidingwindow_attention import Global_SlidingWindow_Attention
+from extra_attention.moe_attention import MoEAttention
 
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,8 @@ class Block(nn.Module):
             self.attn = Global_SlidingWindow_Attention(config, vis)
         elif extra_attention == 'BigBird':
             self.attn = BigBird_Attention(config, vis)
+        elif extra_attention == 'MoE':
+            self.attn = MoEAttention(config, vis)
 
 
     def forward(self, x):
