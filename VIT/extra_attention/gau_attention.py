@@ -39,8 +39,6 @@ import math
 #         pass
 
 
-<<<<<<< HEAD
-=======
 # class GAU_Attention(nn.Module):
 #     def __init__(self, config, vis):
 #         super(GAU_Attention, self).__init__()
@@ -295,7 +293,6 @@ import math
 
 
 
->>>>>>> 0daf25ce7e20c4360d63ad3d97d4e7092ac86d31
 
 class GAU_Attention(nn.Module):
     def __init__(self, config, vis):
