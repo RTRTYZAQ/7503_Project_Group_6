@@ -1,3 +1,4 @@
+from cytoolz import sliding_window
 from transformers import BertPreTrainedModel, BertModel, BertConfig
 from transformers.modeling_outputs import SequenceClassifierOutput
 from transformers.models.bert.modeling_bert import BertSelfAttention
@@ -5,6 +6,8 @@ from bert_moe import MoEAttention, MoEAttentionExpert
 import torch
 import torch.nn as nn
 from bert_random import RandomAttention
+from bert_global_sliding_window import LongformerAttention
+from bert_lowrank import LowRankAttention
 
 class BertAttentionEnhancedSequenceClassification(BertPreTrainedModel):
     def __init__(self, config, enhanced_attention="None"):
@@ -24,6 +27,12 @@ class BertAttentionEnhancedSequenceClassification(BertPreTrainedModel):
             elif self.enhanced_attention == "Random":
                 # 替换为随机注意力
                 layer.attention.self = RandomAttention(config, vis=False)
+            elif self.enhanced_attention == "Longformer":
+                # 替换为Longformer Attention
+                layer.attention.self = LongformerAttention(config, vis=False)
+            elif self.enhanced_attention == "LowRank":
+                # 替换为低秩注意力
+                layer.attention.self = LowRankAttention(config, projection_dim=128)
             else:
                 # 替换为普通BERT Attention
                 layer.attention.self = BertSelfAttention(config)

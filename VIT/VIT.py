@@ -23,6 +23,9 @@ from extra_attention.random_attention import Random_Attention
 from extra_attention.bigbird_attention import BigBird_Attention
 from extra_attention.gau_attention import GAU_Attention
 from extra_attention.global_slidingwindow_attention import Global_SlidingWindow_Attention
+from extra_attention.lowrank_attention import LowRank_Attention
+from extra_attention.normal_attention import Normal_Attention
+from extra_attention.moe_attention import MoEAttention
 
 
 logger = logging.getLogger(__name__)
@@ -185,6 +188,12 @@ class Block(nn.Module):
             self.attn = Global_SlidingWindow_Attention(config, vis)
         elif extra_attention == 'BigBird':
             self.attn = BigBird_Attention(config, vis)
+        elif extra_attention == 'LowRank':
+            self.attn = LowRank_Attention(config, vis)
+        elif extra_attention == 'Normal':
+            self.attn = Normal_Attention(config, vis)
+        elif extra_attention == 'MoE':
+            self.attn = MoEAttention(config, vis)
 
 
     def forward(self, x):
@@ -216,6 +225,14 @@ class Block(nn.Module):
             self.attn.key.weight.copy_(key_weight)
             self.attn.value.weight.copy_(value_weight)
             self.attn.out.weight.copy_(out_weight)
+            
+            # # 跳过GAU特有层（如W_u, W_v）的加载，保持随机初始化
+            # # 加载偏置项
+            # query_bias = np2th(weights[pjoin(ROOT, ATTENTION_Q, "bias")]).view(-1)
+            # key_bias = np2th(weights[pjoin(ROOT, ATTENTION_K, "bias")]).view(-1)
+            # value_bias = np2th(weights[pjoin(ROOT, ATTENTION_V, "bias")]).view(-1)
+            # out_bias = np2th(weights[pjoin(ROOT, ATTENTION_OUT, "bias")]).view(-1)
+            
             self.attn.query.bias.copy_(query_bias)
             self.attn.key.bias.copy_(key_bias)
             self.attn.value.bias.copy_(value_bias)
