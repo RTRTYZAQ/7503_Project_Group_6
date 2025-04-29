@@ -1,14 +1,10 @@
 import torch
 import torch.nn as nn
-import numpy as np
+import math
 
 from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, Conv2d, LayerNorm
 from torch.nn.modules.utils import _pair
 from scipy import ndimage
-
-import math
-
-
 
 class Random_Attention(nn.Module):
     def __init__(self, config, vis):
@@ -28,20 +24,32 @@ class Random_Attention(nn.Module):
 
         self.softmax = Softmax(dim=-1)
 
+        # 使用更安全的属性存储方式
+        self._random_mask_cache = {}
+        self._current_seq_length = None
+
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
     
-    def create_random_mask(self, seq_length):
-        # 创建随机掩码，每个token只能关注大约一半的token
-        mask = torch.ones(seq_length, seq_length, device=self.query.weight.device)
-        for i in range(seq_length):
-            # 随机选择要保留的注意力位置（大约一半）
-            keep_indices = torch.randperm(seq_length)[:seq_length//2]
-            mask[i, keep_indices] = 1
-            mask[i, [x for x in range(seq_length) if x not in keep_indices]] = 0
-        return mask
+    def create_random_mask(self, seq_length, sparsity=0.5):
+        """创建随机注意力掩码"""
+        device = self.query.weight.device
+        # 生成随机矩阵并保留top-k（控制稀疏度）
+        rand_matrix = torch.rand(seq_length, seq_length, device=device)
+        rand_matrix.fill_diagonal_(1)  # 确保自注意力
+        
+        # 计算要保留的元素数量
+        k = int(seq_length * (1 - sparsity))
+        topk = torch.topk(rand_matrix, k=k, dim=1)
+        
+        # 创建稀疏掩码
+        mask = torch.zeros_like(rand_matrix)
+        mask.scatter_(1, topk.indices, 1)
+        mask.fill_diagonal_(1)  # 再次确保对角线为1
+        
+        return mask.bool()
 
     def forward(self, hidden_states):
         mixed_query_layer = self.query(hidden_states)
@@ -55,14 +63,16 @@ class Random_Attention(nn.Module):
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
-        # 创建随机掩码
+        # 获取或创建随机掩码
         seq_length = hidden_states.size(1)
-        random_mask = self.create_random_mask(seq_length)
-        random_mask = random_mask.unsqueeze(0).unsqueeze(0)  # 增加batch和head维度
+        if seq_length not in self._random_mask_cache:
+            self._random_mask_cache[seq_length] = self.create_random_mask(seq_length)
         
-        # 应用掩码，将不需要的位置设为负无穷
-        attention_scores = attention_scores.masked_fill(random_mask == 0, -1e9)
-
+        mask = self._random_mask_cache[seq_length]
+        mask = mask.unsqueeze(0).unsqueeze(0)  # 增加batch和head维度
+        
+        # 应用掩码
+        attention_scores = attention_scores.masked_fill(~mask, -1e9)
 
         attention_probs = self.softmax(attention_scores)
         weights = attention_probs if self.vis else None
