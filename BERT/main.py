@@ -209,6 +209,40 @@ for dataset_name, num_labels in dataset_config.items():
     del moe_bert
     torch.cuda.empty_cache()
 
+
+    # 训练低秩注意力BERT模型
+    print(f"\n=== 训练低秩注意力BERT模型: {dataset_name} ===")
+    lowrank_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
+        "bert-base-uncased",
+        num_labels=num_labels,
+        enhanced_attention="LowRank",
+    )
+    for name, param in lowrank_bert.named_parameters():
+        if 'attention' in name and param.data.dim() >= 2:
+            param.data = torch.nn.init.xavier_uniform_(param.data)
+            lowrank_bert.state_dict()[name] = param.data
+    optimizer = AdamW(lowrank_bert.parameters(), lr=2e-5, weight_decay=0.01)
+    # optimizer = Adam(lowrank_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
+    model, metrics = train_model(
+        lowrank_bert,
+        train_dataset.select(range(min(5000,len(train_dataset)))),
+        val_dataset,
+        test_dataset,
+        f"LowRank BERT - {dataset_name}",
+        num_epochs=num_epochs,
+        optimizer=optimizer,
+        batch_size=batch_size,
+        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
+    )
+    results.append({
+        "Model": "LowRank BERT",
+        "Dataset": dataset_name,
+        **metrics
+    })
+    del lowrank_bert
+    torch.cuda.empty_cache()
+
+
 # 将结果转换为DataFrame
 results_df = pd.DataFrame(results)
 
