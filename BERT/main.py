@@ -243,6 +243,39 @@ for dataset_name, num_labels in dataset_config.items():
     torch.cuda.empty_cache()
 
 
+    # 训练自定义BigBird Attention BERT模型
+    print(f"\n=== 训练自定义BigBird Attention BERT模型: {dataset_name} ===")
+    bigbird_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
+        "bert-base-uncased",
+        num_labels=num_labels,
+        enhanced_attention="BigBird",
+    )
+    for name, param in bigbird_bert.named_parameters():
+        if 'attention' in name and param.data.dim() >= 2:
+            param.data = torch.nn.init.xavier_uniform_(param.data)
+            bigbird_bert.state_dict()[name] = param.data
+
+    optimizer = AdamW(bigbird_bert.parameters(), lr=2e-5, weight_decay=0.01)
+    # optimizer = Adam(bigbird_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
+    model, metrics = train_model(
+        bigbird_bert,
+        train_dataset.select(range(min(5000,len(train_dataset)))),
+        val_dataset,
+        f"BigBird BERT - {dataset_name}",
+        num_epochs=3,
+        optimizer=optimizer,
+        batch_size=16,
+        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
+    )
+    results.append({
+        "Model": "BigBird BERT",
+        "Dataset": dataset_name,
+        **metrics
+    })
+    del bigbird_bert
+    torch.cuda.empty_cache()
+
+
 # 将结果转换为DataFrame
 results_df = pd.DataFrame(results)
 
@@ -250,7 +283,6 @@ results_df = pd.DataFrame(results)
 print("\n=== 训练结果 ===")
 print(results_df)
 
-# 绘制图表
 # 绘制图表
 for dataset_name in dataset_config.keys():
     dataset_results = results_df[results_df["Dataset"] == dataset_name]

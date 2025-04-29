@@ -8,6 +8,7 @@ import torch.nn as nn
 from bert_random import RandomAttention
 from bert_global_sliding_window import LongformerAttention
 from bert_lowrank import LowRankAttention
+from bert_bigbird import BigBirdAttention
 
 class BertAttentionEnhancedSequenceClassification(BertPreTrainedModel):
     def __init__(self, config, enhanced_attention="None"):
@@ -33,6 +34,9 @@ class BertAttentionEnhancedSequenceClassification(BertPreTrainedModel):
             elif self.enhanced_attention == "LowRank":
                 # 替换为低秩注意力
                 layer.attention.self = LowRankAttention(config, projection_dim=128)
+            elif self.enhanced_attention == "BigBird":
+                # 替换为BigBird Attention
+                layer.attention.self = BigBirdAttention(config, block_size=8, num_random_blocks=2)
             else:
                 # 替换为普通BERT Attention
                 layer.attention.self = BertSelfAttention(config)
