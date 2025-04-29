@@ -241,6 +241,7 @@ for dataset_name, num_labels in dataset_config.items():
     })
     del lowrank_bert
     torch.cuda.empty_cache()
+<<<<<<< HEAD
     
     
     # 训练门控注意力BERT模型
@@ -273,6 +274,8 @@ for dataset_name, num_labels in dataset_config.items():
     })
     del gau_bert
     torch.cuda.empty_cache()
+=======
+>>>>>>> 0daf25ce7e20c4360d63ad3d97d4e7092ac86d31
 
 
     # 训练自定义BigBird Attention BERT模型
