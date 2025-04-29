@@ -27,7 +27,7 @@ class Global_SlidingWindow_Attention(nn.Module):
         self.softmax = Softmax(dim=-1)
 
         # Window size for sliding window attention
-        self.window_size = config.window_size if hasattr(config, 'window_size') else 3
+        self.window_size = config.window_size if hasattr(config, 'window_size') else 128
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -35,19 +35,33 @@ class Global_SlidingWindow_Attention(nn.Module):
         return x.permute(0, 2, 1, 3)
 
     def create_sliding_window_mask(self, seq_length):
-        # Create a sliding window mask where each token can only attend to nearby tokens
-        mask = torch.zeros(seq_length, seq_length, device=self.query.weight.device)
 
-        for i in range(seq_length):
-            # Calculate the start and end of the window
-            start = max(0, i - self.window_size // 2)
-            end = min(seq_length, i + self.window_size // 2 + 1)
+        if seq_length not in self._window_mask_cache:
+            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            mask = torch.zeros((seq_length, seq_length), dtype=torch.bool, device=device)
 
-            # Also allow global attention to the first token
-            mask[i, start:end] = 1
-            mask[i, 0] = 1  # Global attention to first token
+            # 基础滑动窗口
+            for i in range(seq_length):
+                start = max(0, i - self.window_size // 2)
+                end = min(seq_length, i + self.window_size // 2 + 1)
+                mask[i, start:end] = True
 
-        return mask
+            # 分层窗口增强
+            if seq_length > 64:
+                stride = 64
+                for i in range(0, seq_length, stride):
+                    center = min(i + stride // 2, seq_length - 1)
+                    mask[center, :] = True  # 中心节点全局可见
+
+                    # 连接相邻中心点
+                    if i > 0:
+                        prev_center = max(0, i - stride // 2)
+                        mask[center, prev_center] = True
+                        mask[prev_center, center] = True
+
+            self._window_mask_cache[seq_length] = mask
+
+        return self._window_mask_cache[seq_length]
 
     def forward(self, hidden_states):
         mixed_query_layer = self.query(hidden_states)

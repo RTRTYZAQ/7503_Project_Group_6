@@ -151,6 +151,10 @@ def train(args, model):
                                 lr=args.learning_rate,
                                 momentum=0.9,
                                 weight_decay=args.weight_decay)
+    # AdamW
+    # optimizer = torch.optim.AdamW(model.parameters(),
+    #                             lr=args.learning_rate,
+    #                             weight_decay=args.weight_decay)
     t_total = args.num_steps
     if args.decay_type == "cosine":
         scheduler = WarmupCosineSchedule(optimizer, warmup_steps=args.warmup_steps, t_total=t_total)

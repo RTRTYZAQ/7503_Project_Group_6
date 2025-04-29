@@ -1,6 +1,10 @@
 BERT/__pycache__/ 
 BERT/processed_datasets/
+processed_datasets/
 .idea/
 VIT/data/
 VIT/__pycache__/
 VIT/pretrain_weights/
+VIT/utils/__pycache__/
+VIT/extra_attention/__pycache__/
+VIT/output/
