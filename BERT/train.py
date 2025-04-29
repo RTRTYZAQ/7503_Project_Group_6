@@ -5,6 +5,12 @@ from tqdm import tqdm
 from sklearn.metrics import matthews_corrcoef
 from evaluate import load
 
+
+def count_parameters(model):
+    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return params/1000000
+
+
 def train_model(model,
                 train_dataset,
                 val_dataset,
@@ -45,6 +51,9 @@ def train_model(model,
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
+
+    print(f"single block Parameter: {count_parameters(model.encoder.layer[0]):2.1f}M")
+    print(f"Total Parameter: {count_parameters(model):2.1f}M\n")
 
     # 训练循环
     for epoch in range(num_epochs):

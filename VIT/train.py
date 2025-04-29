@@ -66,13 +66,20 @@ def setup(args):
     model.load_from(np.load(args.pretrained_dir))
     model.to(args.device)
     num_params = count_parameters(model)
+    num_params_single_block = count_single_block_parameters(model)
 
     # print(config)
     # print(f"Training parameters {args}")
     print(f"num of blocks: {args.num_blocks}")
+    print(f"single block Parameter: {num_params_single_block:2.1f}M")
     print(f"Total Parameter: {num_params:2.1f}M\n")
     # print(num_params)
     return args, model
+
+
+def count_single_block_parameters(model):
+    params = sum(p.numel() for p in model.transformer.encoder.layer[0].parameters() if p.requires_grad)
+    return params/1000000
 
 
 def count_parameters(model):
