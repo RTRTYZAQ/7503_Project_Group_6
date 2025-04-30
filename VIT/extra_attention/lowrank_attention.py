@@ -27,16 +27,24 @@ class LowRank_Attention(nn.Module):
         self.proj_dropout = Dropout(config.transformer["attention_dropout_rate"])
         self.softmax = Softmax(dim=-1)
         
-        # lowrank参数
-        self.projection_dim = min(256, self.attention_head_size)  # 随机特征的维度
-        self.eps = 1e-6  # 数值稳定性
+        # Linformer 参数
+        # 低秩投影的目标维度，越小效率越高
+        self.k = min(128, self.attention_head_size)
         self.scale = 1 / math.sqrt(self.attention_head_size)
         
-        # 初始化随机投影矩阵
-        projection_matrix = torch.randn(
-            self.num_attention_heads, self.attention_head_size, self.projection_dim
-        ) * self.scale
-        self.register_buffer('projection_matrix', projection_matrix)
+        # 一个标准 ViT 中，序列长度 = 1 (CLS token) + patches数量
+        # 对于 224x224 图像和 16x16 patch，有 (224/16)² = 14² = 196 个 patch
+        # 序列长度 = 1 + 196 = 197
+        seq_len = 197  # CLS token + patches
+        
+        # 初始化 Linformer 的 E_k 和 E_v 投影矩阵
+        # 这些矩阵将序列长度从 seq_len 降到 k
+        self.E_k = nn.Parameter(torch.Tensor(seq_len, self.k))
+        self.E_v = nn.Parameter(torch.Tensor(seq_len, self.k))
+        
+        # 以正态分布初始化参数
+        nn.init.normal_(self.E_k, mean=0, std=0.02)
+        nn.init.normal_(self.E_v, mean=0, std=0.02)
 
     def transpose_for_scores(self, x):
         """将输入重塑为多头注意力格式"""
@@ -53,34 +61,37 @@ class LowRank_Attention(nn.Module):
         mixed_value_layer = self.value(hidden_states)
         
         # 调整形状为多头格式
-        query_layer = self.transpose_for_scores(mixed_query_layer)
-        key_layer = self.transpose_for_scores(mixed_key_layer)
-        value_layer = self.transpose_for_scores(mixed_value_layer)
+        query_layer = self.transpose_for_scores(mixed_query_layer)  # [batch, heads, seq_len, head_dim]
+        key_layer = self.transpose_for_scores(mixed_key_layer)      # [batch, heads, seq_len, head_dim]
+        value_layer = self.transpose_for_scores(mixed_value_layer)  # [batch, heads, seq_len, head_dim]
         
-        # 投影到随机特征空间
-        query_projection = torch.einsum('bhnd,hdm->bhnm', query_layer, self.projection_matrix)
-        key_projection = torch.einsum('bhnd,hdm->bhnm', key_layer, self.projection_matrix)
+        # Linformer 投影 - 降低序列长度维度
+        # key_layer: [batch, heads, seq_len, head_dim]
+        # E_k: [seq_len, k]
+        # 结果: [batch, heads, k, head_dim]
+        projected_keys = torch.matmul(self.E_k.t().unsqueeze(0).unsqueeze(0), key_layer)
         
-        # 为数值稳定性减去最大值
-        query_projection = query_projection - query_projection.max(dim=-1, keepdim=True)[0]
-        key_projection = key_projection - key_projection.max(dim=-1, keepdim=True)[0]
+        # value_layer: [batch, heads, seq_len, head_dim]
+        # E_v: [seq_len, k]
+        # 结果: [batch, heads, k, head_dim]
+        projected_values = torch.matmul(self.E_v.t().unsqueeze(0).unsqueeze(0), value_layer)
         
-        # 应用exp变换
-        query_projection = torch.exp(query_projection)
-        key_projection = torch.exp(key_projection)
+        # 计算注意力分数
+        # query_layer: [batch, heads, seq_len, head_dim]
+        # projected_keys: [batch, heads, k, head_dim]
+        # 结果: [batch, heads, seq_len, k]
+        attention_scores = torch.matmul(query_layer, projected_keys.transpose(-1, -2))
+        attention_scores = attention_scores * self.scale
         
-        # 计算低秩近似
-        kv = torch.einsum('bhnd,bhne->bhde', key_projection, value_layer)
+        # 应用 Softmax 获得注意力权重
+        attention_probs = self.softmax(attention_scores)
+        attention_probs = self.attn_dropout(attention_probs)
         
-        # 计算Q' * (K' * V)
-        qkv = torch.einsum('bhnd,bhde->bhne', query_projection, kv)
-        
-        # 计算归一化因子
-        k_sum = torch.sum(key_projection, dim=2)  # [batch, heads, projection_dim]
-        normalizer = torch.einsum('bhnd,bhd->bhn', query_projection, k_sum).unsqueeze(-1)
-        
-        # 归一化输出
-        context_layer = qkv / (normalizer + self.eps)
+        # 将注意力权重应用于投影后的值
+        # attention_probs: [batch, heads, seq_len, k]
+        # projected_values: [batch, heads, k, head_dim]
+        # 结果: [batch, heads, seq_len, head_dim]
+        context_layer = torch.matmul(attention_probs, projected_values)
         
         # 重塑输出
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
@@ -94,11 +105,12 @@ class LowRank_Attention(nn.Module):
         # 计算用于可视化的注意力权重
         if self.vis:
             with torch.no_grad():
-                attention_probs = torch.matmul(query_layer, key_layer.transpose(-1, -2)) * self.scale
-                attention_probs = self.softmax(attention_probs)
+                # 这里计算的是原始的注意力矩阵，用于可视化目的
+                orig_attention_probs = torch.matmul(query_layer, key_layer.transpose(-1, -2)) * self.scale
+                orig_attention_probs = self.softmax(orig_attention_probs)
         else:
-            attention_probs = None
+            orig_attention_probs = None
             
-        weights = attention_probs if self.vis else None
+        weights = orig_attention_probs if self.vis else None
         
         return attention_output, weights
