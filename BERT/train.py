@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from transformers import AdamW, get_linear_schedule_with_warmup
+from transformers import AdamW, get_linear_schedule_with_warmup, get_cosine_schedule_with_warmup
 from tqdm import tqdm
 from sklearn.metrics import matthews_corrcoef
 from evaluate import load
@@ -41,19 +41,23 @@ def train_model(model,
     # 优化器和学习率调度
     if optimizer is None:
         optimizer = AdamW(model.parameters(), lr=1e-5)
+
     num_training_steps = num_epochs * len(train_dataloader)
+    num_warmup_steps = len(train_dataloader) // 2  # 半个 epoch 的 step 数量
+
     if lr_scheduler is None:
-        lr_scheduler = get_linear_schedule_with_warmup(
+        lr_scheduler = get_cosine_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=len(train_dataloader)//2,
+            num_warmup_steps=num_warmup_steps,
             num_training_steps=num_training_steps
         )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    print(f"single block Parameter: {count_parameters(model.encoder.layer[0]):2.1f}M")
+    print(f"single block Parameter: {count_parameters(model.bert.encoder.layer[0]):2.1f}M")
     print(f"Total Parameter: {count_parameters(model):2.1f}M\n")
+    results = []
 
     # 训练循环
     for epoch in range(num_epochs):
@@ -75,6 +79,7 @@ def train_model(model,
             progress_bar.set_postfix({"loss": loss.item()})
 
         avg_train_loss = total_loss / len(train_dataloader)
+        print(f"Epoch {epoch + 1} - Average Training Loss: {avg_train_loss:.4f}")
 
         # 验证
         model.eval()
@@ -95,10 +100,11 @@ def train_model(model,
             total += len(batch["labels"])
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(batch["labels"].cpu().numpy())
-
+        print(f"Validation Loss: {val_loss / len(val_dataloader):.4f}")
+        print(f"Validation Accuracy: {correct / total:.4f}")
         glue_metric = load("glue", dataset_name)
-        results = glue_metric.compute(predictions=all_predictions, references=all_labels)
-        print(results)
+        results.append(glue_metric.compute(predictions=all_predictions, references=all_labels))
+        print(results[-1])
 
     if dataset_name != "sst2":
         test_loss = 0
@@ -121,6 +127,6 @@ def train_model(model,
         test_results = glue_metric.compute(predictions=test_all_predictions, references=test_all_labels)
         print(test_results)
 
-        return model, test_results
+        return test_results
     else:
-        return model, results
+        return max(results, key=lambda x: x.get("accuracy", 0))

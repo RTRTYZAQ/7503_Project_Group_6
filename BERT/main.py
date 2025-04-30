@@ -43,60 +43,20 @@ all_datasets = load_all_datasets()
 
 config = BertConfig.from_pretrained('bert-base-uncased')
 
-'''# 训练原始BERT模型
-print("=== 训练原始BERT模型 ===")
-original_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-    "bert-base-uncased",
-    num_labels=2,
-)
-for name, param in original_bert.named_parameters():
-    if 'attention' in name and param.data.dim() >=2:
-        # 如果参数属于attention部分，则重新随机初始化
-        print(name)
-        param.data = torch.nn.init.xavier_uniform_(param.data)
-        original_bert.state_dict()[name] = param.data
-
-optimizer = AdamW(original_bert.parameters(), lr=1e-5)
-lr_scheduler = None
-
-train_model(
-    original_bert,
-    all_datasets["glue_sst2"]["train"],
-    all_datasets["glue_sst2"]["validation"],
-    "Original BERT",
-    num_epochs=3,
-    optimizer=optimizer,
-    lr_scheduler=lr_scheduler,
-    batch_size=16
-)
-
-
-# 训练自定义MoE Attention BERT模型
-print("\n=== 训练自定义MoE Attention BERT模型 ===")
-moe_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-    "bert-base-uncased",
-    num_labels=2,
-    enhanced_attention="MoE", # 使用MoE Attention
-)
-
-optimizer = AdamW(moe_bert.parameters(), lr=1e-5)
-lr_scheduler = None
-
-train_model(
-    moe_bert,
-    all_datasets["glue_sst2"]["train"],
-    all_datasets["glue_sst2"]["validation"],
-    "MoE BERT",
-    num_epochs=3,
-    optimizer=optimizer,
-    lr_scheduler=lr_scheduler,
-    batch_size=16
-)'''
-
 # 初始化结果存储
 results = []
-num_epochs = 5
+num_epochs = 1
 batch_size = 16
+
+# 定义模型配置
+model_configs = [
+    {"name": "Random BERT", "attention": "Random"},
+    {"name": "Original BERT", "attention": "None"},
+    {"name": "MoE BERT", "attention": "MoE"},
+    {"name": "LowRank BERT", "attention": "LowRank"},
+    {"name": "GAU BERT", "attention": "GAU"},
+    {"name": "BigBird BERT", "attention": "BigBird"},
+]
 
 # 遍历数据集配置
 for dataset_name, num_labels in dataset_config.items():
@@ -111,202 +71,54 @@ for dataset_name, num_labels in dataset_config.items():
     # 配置BERT模型
     config = BertConfig.from_pretrained('bert-base-uncased', num_labels=num_labels)
 
-    # 训练随机注意力BERT模型
-    print(f"\n=== 训练随机注意力BERT模型: {dataset_name} ===")
-    random_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-        "bert-base-uncased",
-        num_labels=num_labels,
-        enhanced_attention="Random",
-    )
-    for name, param in random_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            random_bert.state_dict()[name] = param.data
-    optimizer = AdamW(random_bert.parameters(), lr=2e-5, weight_decay=0.01)
-    # optimizer = Adam(random_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
-    model, metrics = train_model(
-        random_bert,
-        train_dataset.select(range(min(5000, len(train_dataset)))),
-        val_dataset,
-        test_dataset,
-        f"Random BERT - {dataset_name}",
-        num_epochs=num_epochs,
-        optimizer=optimizer,
-        batch_size=batch_size,
-        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
-    )
-    results.append({
-        "Model": "Random BERT",
-        "Dataset": dataset_name,
-        **metrics
-    })
-    del random_bert
-    torch.cuda.empty_cache()
+    # 遍历模型配置
+    for model_config in model_configs:
+        model_name = model_config["name"]
+        enhanced_attention = model_config["attention"]
 
+        print(f"\n=== 训练{model_name}: {dataset_name} ===")
+        model = BertAttentionEnhancedSequenceClassification.from_pretrained(
+            "bert-base-uncased",
+            num_labels=num_labels,
+            enhanced_attention=enhanced_attention,
+        )
 
-    # 训练原始BERT模型
-    print(f"\n=== 训练原始BERT模型: {dataset_name} ===")
-    original_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-        "bert-base-uncased",
-        num_labels=num_labels,
-    )
-    for name, param in original_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            original_bert.state_dict()[name] = param.data
+        # 初始化注意力层参数
+        for name, param in model.named_parameters():
+            if 'attention' in name and param.data.dim() >= 2:
+                param.data = torch.nn.init.xavier_uniform_(param.data)
+                model.state_dict()[name] = param.data
 
-    optimizer = AdamW(original_bert.parameters(), lr=2e-5, weight_decay=0.01)
-    # optimizer = Adam(original_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
-    model, metrics = train_model(
-        original_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)))),
-        val_dataset,
-        test_dataset,
-        f"Original BERT - {dataset_name}",
-        num_epochs=num_epochs,
-        optimizer=optimizer,
-        batch_size=batch_size,
-        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name,
-    )
-    results.append({
-        "Model": "Original BERT",
-        "Dataset": dataset_name,
-        **metrics
-    })
-    del original_bert
-    torch.cuda.empty_cache()
+        # 配置优化器
+        ft_parameters = []
+        for encoder_layer in model.bert.encoder.layer:
+            ft_parameters.extend(encoder_layer.attention.parameters())
+        ft_parameters.extend(model.classifier.parameters())
+        optimizer = AdamW(ft_parameters, lr=2e-5, weight_decay=0.01)
+        # optimizer = SGD(ft_parameters, lr=3e-2, momentum=0.9)
+        # 训练模型
+        metrics = train_model(
+            model,
+            train_dataset.select(range(min(5000, len(train_dataset)))),
+            val_dataset,
+            test_dataset,
+            f"{model_name} - {dataset_name}",
+            num_epochs=num_epochs,
+            optimizer=optimizer,
+            batch_size=batch_size,
+            dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name,
+        )
 
-    # 训练自定义MoE Attention BERT模型
-    print(f"\n=== 训练自定义MoE Attention BERT模型: {dataset_name} ===")
-    moe_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-        "bert-base-uncased",
-        num_labels=num_labels,
-        enhanced_attention="MoE",
-    )
-    for name, param in moe_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            moe_bert.state_dict()[name] = param.data
+        # 保存结果
+        results.append({
+            "Model": model_name,
+            "Dataset": dataset_name,
+            **metrics
+        })
 
-    optimizer = AdamW(moe_bert.parameters(), lr=2e-5, weight_decay=0.01)
-    # optimizer = Adam(moe_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
-    model, metrics = train_model(
-        moe_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)))),
-        val_dataset,
-        test_dataset,
-        f"MoE BERT - {dataset_name}",
-        num_epochs=num_epochs,
-        optimizer=optimizer,
-        batch_size=batch_size,
-        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
-    )
-    results.append({
-        "Model": "MoE BERT",
-        "Dataset": dataset_name,
-        **metrics
-    })
-    del moe_bert
-    torch.cuda.empty_cache()
-
-
-    # 训练低秩注意力BERT模型
-    print(f"\n=== 训练低秩注意力BERT模型: {dataset_name} ===")
-    lowrank_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-        "bert-base-uncased",
-        num_labels=num_labels,
-        enhanced_attention="LowRank",
-    )
-    for name, param in lowrank_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            lowrank_bert.state_dict()[name] = param.data
-    optimizer = AdamW(lowrank_bert.parameters(), lr=2e-5, weight_decay=0.01)
-    # optimizer = Adam(lowrank_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
-    model, metrics = train_model(
-        lowrank_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)))),
-        val_dataset,
-        test_dataset,
-        f"LowRank BERT - {dataset_name}",
-        num_epochs=num_epochs,
-        optimizer=optimizer,
-        batch_size=batch_size,
-        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
-    )
-    results.append({
-        "Model": "LowRank BERT",
-        "Dataset": dataset_name,
-        **metrics
-    })
-    del lowrank_bert
-    torch.cuda.empty_cache()
-    
-    
-    # 训练门控注意力BERT模型
-    print(f"\n=== 训练门控注意力BERT模型: {dataset_name} ===")
-    gau_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-        "bert-base-uncased",
-        num_labels=num_labels,
-        enhanced_attention="GAU",
-    )
-    for name, param in gau_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            gau_bert.state_dict()[name] = param.data
-    optimizer = AdamW(gau_bert.parameters(), lr=2e-5, weight_decay=0.01)
-    model, metrics = train_model(
-        gau_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)))),
-        val_dataset,
-        test_dataset,
-        f"GAU BERT - {dataset_name}",
-        num_epochs=num_epochs,
-        optimizer=optimizer,
-        batch_size=batch_size,
-        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
-    )
-    results.append({
-        "Model": "GAU BERT",
-        "Dataset": dataset_name,
-        **metrics
-    })
-    del gau_bert
-    torch.cuda.empty_cache()
-
-
-    # 训练自定义BigBird Attention BERT模型
-    print(f"\n=== 训练自定义BigBird Attention BERT模型: {dataset_name} ===")
-    bigbird_bert = BertAttentionEnhancedSequenceClassification.from_pretrained(
-        "bert-base-uncased",
-        num_labels=num_labels,
-        enhanced_attention="BigBird",
-    )
-    for name, param in bigbird_bert.named_parameters():
-        if 'attention' in name and param.data.dim() >= 2:
-            param.data = torch.nn.init.xavier_uniform_(param.data)
-            bigbird_bert.state_dict()[name] = param.data
-
-    optimizer = AdamW(bigbird_bert.parameters(), lr=2e-5, weight_decay=0.01)
-    # optimizer = Adam(bigbird_bert.parameters(), lr=2e-5, betas=(0.9, 0.999))
-    model, metrics = train_model(
-        bigbird_bert,
-        train_dataset.select(range(min(5000,len(train_dataset)))),
-        val_dataset,
-        f"BigBird BERT - {dataset_name}",
-        num_epochs=3,
-        optimizer=optimizer,
-        batch_size=16,
-        dataset_name=dataset_name.split("_")[1] if "_" in dataset_name else dataset_name
-    )
-    results.append({
-        "Model": "BigBird BERT",
-        "Dataset": dataset_name,
-        **metrics
-    })
-    del bigbird_bert
-    torch.cuda.empty_cache()
-
+        # 清理显存
+        del model
+        torch.cuda.empty_cache()
 
 # 将结果转换为DataFrame
 results_df = pd.DataFrame(results)
