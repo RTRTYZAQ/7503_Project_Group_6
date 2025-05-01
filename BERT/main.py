@@ -53,6 +53,7 @@ model_configs = [
     {"name": "Random BERT", "attention": "Random"},
     {"name": "Original BERT", "attention": "None"},
     {"name": "MoE BERT", "attention": "MoE"},
+    {"name": "GSW BERT", "attention": "Longformer"},
     {"name": "LowRank BERT", "attention": "LowRank"},
     {"name": "GAU BERT", "attention": "GAU"},
     {"name": "BigBird BERT", "attention": "BigBird"},

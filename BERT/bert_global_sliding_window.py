@@ -27,7 +27,7 @@ class LongformerAttention(nn.Module):
         self.vis = vis
 
         # Longformer specific
-        self.window_size = 128 # 默认窗口大小
+        self.window_size = 64 # 默认窗口大小
         self._window_mask_cache = {}
 
     def transpose_for_scores(self, x):
@@ -36,7 +36,7 @@ class LongformerAttention(nn.Module):
         return x.permute(0, 2, 1, 3)
 
     def create_window_mask(self, seq_length):
-        """创建带分层窗口的滑动注意力掩码（保持原有缓存机制）"""
+        """创建带分层窗口的滑动注意力掩码"""
         if seq_length not in self._window_mask_cache:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             mask = torch.zeros((seq_length, seq_length), dtype=torch.bool, device=device)
@@ -82,7 +82,6 @@ class LongformerAttention(nn.Module):
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
 
-        # 计算注意力分数（保持原始矩阵乘法）
         attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
 
