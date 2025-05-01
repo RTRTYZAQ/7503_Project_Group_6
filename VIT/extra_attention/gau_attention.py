@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss, Dropout, Softmax, Linear, Conv2d, LayerNorm
 from torch.nn.modules.utils import _pair
 from scipy import ndimage
+from einops import einsum
 
 import math
 
@@ -294,94 +295,251 @@ import math
 
 
 
+# class GAU_Attention(nn.Module):
+#     def __init__(self, config, vis):
+#         super(GAU_Attention, self).__init__()
+#         self.vis = vis
+#         self.num_attention_heads = config.transformer["num_heads"]
+#         self.attention_head_size = int(config.hidden_size / self.num_attention_heads)
+#         self.all_head_size = self.num_attention_heads * self.attention_head_size
+
+#         self.query = Linear(config.hidden_size, self.all_head_size)
+#         self.key = Linear(config.hidden_size, self.all_head_size)
+#         self.value = Linear(config.hidden_size, self.all_head_size)
+#         self.out = Linear(config.hidden_size, config.hidden_size)
+#         self.attn_dropout = Dropout(config.transformer["attention_dropout_rate"])
+#         self.proj_dropout = Dropout(config.transformer["attention_dropout_rate"])
+#         self.softmax = Softmax(dim=-1)
+
+#         # GAU-specific parameters
+#         self.s = 128  # 可调整的超参数
+#         self.expansion_factor = 2
+#         self.e = int(self.attention_head_size * self.expansion_factor)
+#         self.gamma = nn.Parameter(torch.randn(2, self.s))
+#         self.beta = nn.Parameter(torch.randn(2, self.s))
+#         self.a = nn.Parameter(torch.randn(1, self.s))
+#         self.b_param = nn.Parameter(torch.randn(1, self.s))  # 避免命名冲突
+
+#     def transpose_for_scores(self, x):
+#         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+#         x = x.view(*new_x_shape)
+#         return x.permute(0, 2, 1, 3)
+
+#     def rope(self, x, dim):
+#         shape = x.shape
+#         spatial_shape = (shape[dim],)
+#         position = torch.arange(spatial_shape[0], dtype=torch.float, device=x.device).reshape(spatial_shape)
+#         for _ in range(dim + 1, len(shape) - 1):
+#             position = position.unsqueeze(-1)
+#         half_size = shape[-1] // 2
+#         freq_seq = -torch.arange(half_size, dtype=torch.float, device=x.device) / half_size
+#         inv_freq = 10000 ** freq_seq
+#         sinusoid = torch.einsum("...,d->...d", position, inv_freq)
+#         sin = torch.sin(sinusoid)
+#         cos = torch.cos(sinusoid)
+#         x1, x2 = torch.chunk(x, 2, dim=-1)
+#         return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
+
+#     def rel_pos_bias(self, seq_len):
+#         a = self.rope(self.a.repeat(seq_len, 1), dim=0)
+#         b = self.rope(self.b_param.repeat(seq_len, 1), dim=0)
+#         return torch.einsum("mk,nk->mn", a, b)
+
+#     def forward(self, hidden_states):
+#         # Project inputs to Q/K/V
+#         mixed_query = self.query(hidden_states)
+#         mixed_key = self.key(hidden_states)
+#         mixed_value = self.value(hidden_states)
+
+#         # Reshape to multi-head format
+#         query = self.transpose_for_scores(mixed_query)
+#         key = self.transpose_for_scores(mixed_key)
+#         value = self.transpose_for_scores(mixed_value)
+
+#         # # Apply RoPE to Q and K
+#         # query = self.rope(query, dim=2)
+#         # key = self.rope(key, dim=2)
+
+#         # Compute attention scores
+#         attention_scores = torch.matmul(query, key.transpose(-1, -2))
+#         attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+
+#         # Add relative position bias
+#         seq_length = hidden_states.size(1)
+#         rel_bias = self.rel_pos_bias(seq_length).unsqueeze(0).unsqueeze(0)
+#         attention_scores += rel_bias
+
+#         # GAU gating mechanism
+#         attention_weights = torch.square(F.relu(attention_scores / seq_length))
+#         attention_probs = self.softmax(attention_weights)
+#         attention_probs = self.attn_dropout(attention_probs)
+
+#         # Context layer
+#         context = torch.matmul(attention_probs, value)
+#         context = context.permute(0, 2, 1, 3).contiguous()
+#         context_shape = context.size()[:-2] + (self.all_head_size,)
+#         context = context.view(*context_shape)
+
+#         # Output projection
+#         attention_output = self.out(context)
+#         attention_output = self.proj_dropout(attention_output)
+        
+#         weights = attention_probs if self.vis else None
+#         return attention_output, weights
+
+# class GAU_Attention(nn.Module):
+#     def __init__(self, config, vis):
+#         super(GAU_Attention, self).__init__()
+#         self.vis = vis
+#         self.num_attention_heads = config.transformer["num_heads"]
+#         self.attention_head_size = int(config.hidden_size / self.num_attention_heads)
+#         self.all_head_size = self.num_attention_heads * self.attention_head_size
+
+#         self.query = Linear(config.hidden_size, self.all_head_size)
+#         self.key = Linear(config.hidden_size, self.all_head_size)
+#         self.value = Linear(config.hidden_size, self.all_head_size)
+
+#         self.out = Linear(config.hidden_size, config.hidden_size)
+#         self.attn_dropout = Dropout(config.transformer["attention_dropout_rate"])
+#         self.proj_dropout = Dropout(config.transformer["attention_dropout_rate"])
+
+#         self.norm = nn.LayerNorm(config.hidden_size)
+#         # 调整gamma和beta的维度为 (2, all_head_size)
+#         self.gamma = nn.Parameter(torch.ones(2, self.all_head_size))
+#         self.beta = nn.Parameter(torch.zeros(2, self.all_head_size))
+#         nn.init.normal_(self.gamma, std=0.02)
+
+#     def forward(self, hidden_states):
+#         batch_size, seq_len, _ = hidden_states.shape
+#         normed_x = self.norm(hidden_states)
+
+#         # 合并query和key的输出
+#         z_q = self.query(normed_x)
+#         z_k = self.key(normed_x)
+#         Z = torch.nn.functional.silu(z_q + z_k)
+
+#         # 生成Q和K
+#         QK = einsum(Z, self.gamma, 'b s d, g d -> b s g d') + self.beta
+#         q, k = QK.unbind(dim=2)
+
+#         # 计算注意力权重
+#         sim = einsum(q, k, 'b i d, b j d -> b i j') / seq_len
+#         A = torch.relu(sim) ** 2
+#         A = self.attn_dropout(A)
+
+#         # 处理value和门控
+#         value_output = self.value(normed_x)
+#         v, gate = value_output.chunk(2, dim=-1)  # 各维度: (batch_size, seq_len, 384)
+
+#         # 计算V并拼接恢复维度
+#         V = einsum(A, v, 'b i j, b j d -> b i d')
+#         V = V * gate
+#         V = torch.cat([V, gate], dim=-1)  # 维度恢复至768
+
+#         # 输出投影（兼容ViT预训练权重）
+#         output = self.out(V)
+#         output = self.proj_dropout(output)
+#         weights = A if self.vis else None
+#         return output, weights
+
+
+# class GAU_Attention(nn.Module):
+#     def __init__(self, config, vis):
+#         super().__init__()
+#         self.vis = vis
+#         self.num_attention_heads = config.transformer["num_heads"]
+#         self.attention_head_size = int(config.hidden_size / self.num_attention_heads)
+#         self.all_head_size = self.num_attention_heads * self.attention_head_size
+        
+#         self.hidden_size = config.hidden_size
+#         self.query = nn.Linear(config.hidden_size, self.all_head_size)
+#         self.key = nn.Linear(config.hidden_size, self.all_head_size)
+#         self.value = nn.Linear(config.hidden_size, self.all_head_size)
+#         self.gate = nn.Parameter(torch.randn(self.all_head_size))
+        
+#         # 初始化LayerNorm作为模块成员
+#         self.norm = nn.LayerNorm(config.hidden_size)  # 在__init__中定义
+        
+#         self.out = nn.Linear(config.hidden_size, config.hidden_size)
+#         self.attn_dropout = nn.Dropout(config.transformer["attention_dropout_rate"])
+#         self.proj_dropout = nn.Dropout(config.transformer["attention_dropout_rate"])
+#         self.silu = nn.SiLU()
+
+#     def forward(self, hidden_states):
+#         B, T, _ = hidden_states.shape
+#         normed_x = self.norm(hidden_states)  # 使用预定义的LayerNorm层
+        
+#         Q = self.silu(self.query(normed_x)) 
+#         K = self.silu(self.key(normed_x))  
+#         V = self.value(normed_x)             
+        
+#         sim = einsum(Q, K, "b i d, b j d -> b i j") / (T ** 0.5)
+#         A = torch.relu(sim) ** 2
+#         A = self.attn_dropout(A)
+        
+#         AV = einsum(A, V, "b i j, b j d -> b i d")
+#         output = AV * self.gate  
+        
+#         output = self.out(output)
+#         output = self.proj_dropout(output)
+        
+#         weights = A if self.vis else None
+        
+#         return output, weights
+    
+    
 class GAU_Attention(nn.Module):
     def __init__(self, config, vis):
-        super(GAU_Attention, self).__init__()
+        super().__init__()
+        self.hidden_size = config.hidden_size
         self.vis = vis
         self.num_attention_heads = config.transformer["num_heads"]
         self.attention_head_size = int(config.hidden_size / self.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
-
-        self.query = Linear(config.hidden_size, self.all_head_size)
-        self.key = Linear(config.hidden_size, self.all_head_size)
-        self.value = Linear(config.hidden_size, self.all_head_size)
-        self.out = Linear(config.hidden_size, config.hidden_size)
-        self.attn_dropout = Dropout(config.transformer["attention_dropout_rate"])
-        self.proj_dropout = Dropout(config.transformer["attention_dropout_rate"])
-        self.softmax = Softmax(dim=-1)
-
-        # GAU-specific parameters
-        self.s = 128  # 可调整的超参数
-        self.expansion_factor = 2
-        self.e = int(self.attention_head_size * self.expansion_factor)
-        self.gamma = nn.Parameter(torch.randn(2, self.s))
-        self.beta = nn.Parameter(torch.randn(2, self.s))
-        self.a = nn.Parameter(torch.randn(1, self.s))
-        self.b_param = nn.Parameter(torch.randn(1, self.s))  # 避免命名冲突
-
-    def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        x = x.view(*new_x_shape)
-        return x.permute(0, 2, 1, 3)
-
-    def rope(self, x, dim):
-        shape = x.shape
-        spatial_shape = (shape[dim],)
-        position = torch.arange(spatial_shape[0], dtype=torch.float, device=x.device).reshape(spatial_shape)
-        for _ in range(dim + 1, len(shape) - 1):
-            position = position.unsqueeze(-1)
-        half_size = shape[-1] // 2
-        freq_seq = -torch.arange(half_size, dtype=torch.float, device=x.device) / half_size
-        inv_freq = 10000 ** freq_seq
-        sinusoid = torch.einsum("...,d->...d", position, inv_freq)
-        sin = torch.sin(sinusoid)
-        cos = torch.cos(sinusoid)
-        x1, x2 = torch.chunk(x, 2, dim=-1)
-        return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
-
-    def rel_pos_bias(self, seq_len):
-        a = self.rope(self.a.repeat(seq_len, 1), dim=0)
-        b = self.rope(self.b_param.repeat(seq_len, 1), dim=0)
-        return torch.einsum("mk,nk->mn", a, b)
+        
+        self.hidden_size = config.hidden_size
+        
+        
+        # 初始化LayerNorm和参数
+        self.norm = nn.LayerNorm(config.hidden_size)
+        self.W_u = nn.Linear(config.hidden_size, self.all_head_size)  # 公式中的W_u
+        self.out = nn.Linear(config.hidden_size, config.hidden_size)  # 公式中的W_o
+        
+        # 注意力相关层
+        self.query = nn.Linear(config.hidden_size, self.all_head_size)
+        self.key = nn.Linear(config.hidden_size, self.all_head_size)
+        self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        
+        # 激活函数和Dropout
+        self.silu = nn.SiLU()
+        self.attn_dropout = nn.Dropout(config.transformer["attention_dropout_rate"])
+        self.proj_dropout = nn.Dropout(config.transformer["attention_dropout_rate"])
 
     def forward(self, hidden_states):
-        # Project inputs to Q/K/V
-        mixed_query = self.query(hidden_states)
-        mixed_key = self.key(hidden_states)
-        mixed_value = self.value(hidden_states)
-
-        # Reshape to multi-head format
-        query = self.transpose_for_scores(mixed_query)
-        key = self.transpose_for_scores(mixed_key)
-        value = self.transpose_for_scores(mixed_value)
-
-        # # Apply RoPE to Q and K
-        # query = self.rope(query, dim=2)
-        # key = self.rope(key, dim=2)
-
-        # Compute attention scores
-        attention_scores = torch.matmul(query, key.transpose(-1, -2))
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-
-        # Add relative position bias
-        seq_length = hidden_states.size(1)
-        rel_bias = self.rel_pos_bias(seq_length).unsqueeze(0).unsqueeze(0)
-        attention_scores += rel_bias
-
-        # GAU gating mechanism
-        attention_weights = torch.square(F.relu(attention_scores / seq_length))
-        attention_probs = self.softmax(attention_weights)
-        attention_probs = self.attn_dropout(attention_probs)
-
-        # Context layer
-        context = torch.matmul(attention_probs, value)
-        context = context.permute(0, 2, 1, 3).contiguous()
-        context_shape = context.size()[:-2] + (self.all_head_size,)
-        context = context.view(*context_shape)
-
-        # Output projection
-        attention_output = self.out(context)
-        attention_output = self.proj_dropout(attention_output)
+        B, T, _ = hidden_states.shape
+        normed_x = self.norm(hidden_states)
         
-        weights = attention_probs if self.vis else None
-        return attention_output, weights
+        # 计算U = φ_u(X W_u)
+        U = self.silu(self.W_u(normed_x))  # [B, T, d]
+        
+        # 生成Q/K/V（假设保持原注意力计算逻辑）
+        Q = self.silu(self.query(normed_x))  # [B, T, d]
+        K = self.silu(self.key(normed_x))    # [B, T, d]
+        V = self.silu(self.value(normed_x))  # [B, T, d]
+        
+        # 计算注意力权重
+        sim = einsum(Q, K, "b i d, b j d -> b i j") / (T ** 0.5)
+        A = torch.relu(sim) ** 2
+        A = self.attn_dropout(A)
+        
+        # 计算AV
+        AV = einsum(A, V, "b i j, b j d -> b i d")  # [B, T, d]
+        
+        # 最终输出 O = (U ⊙ AV) W_o
+        output = U * AV               # Hadamard积 [B, T, d]
+        output = self.out(output)     # 线性投影 [B, T, d]
+        output = self.proj_dropout(output)
+        
+        weights = A if self.vis else None
+        return output, weights
+    
