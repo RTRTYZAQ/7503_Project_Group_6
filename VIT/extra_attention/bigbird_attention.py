@@ -93,8 +93,8 @@ class BigBird_Attention(nn.Module):
         )
         if pad_len > 0:
             context_layer = context_layer[:, :orig_seqlen, :]
-            if self.vis and attention_probs is not None:
-                attention_probs = attention_probs[:, :orig_seqlen, :orig_seqlen, :]
+            if attention_probs is not None:
+                attention_probs = attention_probs[:, :, :orig_seqlen, :orig_seqlen]
         weights = attention_probs if self.vis else None
         # attention_probs = self.attn_dropout(attention_probs)
         context_layer = context_layer.contiguous().view(batch_size, orig_seqlen, -1)

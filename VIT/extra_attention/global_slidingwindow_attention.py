@@ -27,6 +27,7 @@ class Global_SlidingWindow_Attention(nn.Module):
         self.softmax = Softmax(dim=-1)
 
         # Window size for sliding window attention
+        self._window_mask_cache = {}
         self.window_size = config.window_size if hasattr(config, 'window_size') else 128
 
     def transpose_for_scores(self, x):
@@ -64,6 +65,8 @@ class Global_SlidingWindow_Attention(nn.Module):
         return self._window_mask_cache[seq_length]
 
     def forward(self, hidden_states):
+        device = hidden_states.device
+
         mixed_query_layer = self.query(hidden_states)
         mixed_key_layer = self.key(hidden_states)
         mixed_value_layer = self.value(hidden_states)
@@ -77,7 +80,7 @@ class Global_SlidingWindow_Attention(nn.Module):
 
         # Create sliding window mask
         seq_length = hidden_states.size(1)
-        window_mask = self.create_sliding_window_mask(seq_length)
+        window_mask = self.create_sliding_window_mask(seq_length).to(device)
         window_mask = window_mask.unsqueeze(0).unsqueeze(0)  # Add batch and head dimensions
 
         # Apply mask - set masked positions to -infinity
