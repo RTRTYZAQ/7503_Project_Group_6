@@ -70,7 +70,7 @@ class GAUAttention(nn.Module):
         attention_weights = self.softmax(attention_scores)
         attention_weights = attention_weights * gating  # 广播到 [batch, heads, seq_len, seq_len]
 
-        attention_probs = self.atten_dropout(attention_weights)
+        attention_probs = self.attn_dropout(attention_weights)
         
         # 上下文聚合
         context_layer = torch.matmul(attention_probs, value_layer)
