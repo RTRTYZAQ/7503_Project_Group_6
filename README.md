@@ -2,6 +2,27 @@
 
 ## VIT
 
+### Code Structure
+
+- **VIT.py** is the main file that contains the Vision Transformer (ViT) model structure, including the core Transformer blocks, embeddings, and model configurations.
+- **train.py** contains the training loop, validation functions, and model saving/loading utilities for VIT training.
+- **main.ipynb** is the primary notebook interface for running experiments, setting up parameters, and training models on different datasets (CIFAR-10, CIFAR-100, Tiny ImageNet).
+- **extra_attention/** directory contains various attention mechanism implementations:
+  - **normal_attention.py** - Standard multi-head attention implementation (baseline for comparison)
+  - **random_attention.py** - Random attention mechanism for experimentation
+  - **bigbird_attention.py** - BigBird sparse attention with block-based patterns
+  - **gau_attention.py** - Gated Attention Unit (GAU) implementation
+  - **global_slidingwindow_attention.py** - Global + sliding window attention pattern
+  - **lowrank_attention.py** - Low-rank approximation of attention
+  - **moe_attention.py** - Mixture of Experts (MoE) attention structure
+- **utils/** directory contains utility functions:
+  - **data_utils.py** - Data loading and preprocessing utilities, including TinyImageNet dataset handling
+  - **dist_util.py** - Distributed training utilities for multi-GPU setups
+  - **scheduler.py** - Learning rate schedulers (WarmupLinearSchedule, WarmupCosineSchedule)
+- **visualization/** directory contains resources for visualizing attention maps and model outputs
+- **visualize_attention_map.ipynb** - Notebook for visualizing and analyzing attention patterns
+- **interface.ipynb** - Interactive interface for model testing and inference
+
 ### extra_attention
 
 - 在相应的attention.py中，参考__init__实现forward方法（不需要调整__init__）
